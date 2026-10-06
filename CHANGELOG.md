@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-06
+
+### Fixed
+
+- agent-office: デスクトップアプリで部屋の絵が出なかったのを直した
+
 ## [1.0.1] - 2026-10-06
 
 ### Changed
