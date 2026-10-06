@@ -1,0 +1,13 @@
+{
+  "name": "my-cc-mods",
+  "description": "Claude Code の中に住む mod（function hooks で書くプラグイン）を集めた marketplace",
+  "owner": {
+    "name": "saita08"
+  },
+  "plugins": [
+    {
+      "name": "agent-office",
+      "source": "./plugins/agent-office"
+    }
+  ]
+}

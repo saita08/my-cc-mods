@@ -1,0 +1,9 @@
+{
+  "name": "agent-office",
+  "version": "0.1.0",
+  "description": "サブエージェントやチームの動きを、社員が働くオフィスとして pane に描く",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "saita08"
+  }
+}
