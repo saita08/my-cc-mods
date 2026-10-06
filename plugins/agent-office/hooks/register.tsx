@@ -32,11 +32,13 @@ import {
   surnameFor,
 } from './office'
 import type { Person, Room } from './office'
-import { LAYOUT, drawRoom, modeFor } from './pixels'
+import { LAYOUT, SVG_LIMIT, SVG_PX, drawRoom, modeFor, paintRoom, roomHeight, svgRows, toSvg } from './pixels'
 import type { Mode } from './pixels'
 
 const PANE = 'agent-office'
 const TITLE = 'エージェント商事'
+// Roughly a character cell's width in CSS px on the surfaces that draw Svg.
+const SVG_CELL_PX = 8
 const PULSE_MS = 700
 // How long the 社長's phone rings: a few pulses.
 const RING_MS = 4 * PULSE_MS
@@ -356,11 +358,19 @@ export const register: Register = on => {
       await read($, consults),
     ]
     const now = await $.clock.now()
-    const mode = await artMode($)
+    // Off the terminal the room is an Svg drawn from the half-mode canvas, so it
+    // lays out by the half-mode columns.
+    const isTerminal = e.surface === 'terminal'
+    const mode: Mode = isTerminal ? await artMode($) : 'half'
     const layout = LAYOUT[mode]
     const width = Math.max(20, e.props.bodyColumns)
     // Pictures where the surface draws them and one room fits; text alone elsewhere.
-    const Raster = 'Raster' in table && layout.width(1) <= width ? table.Raster : undefined
+    const Raster = isTerminal && 'Raster' in table && layout.width(1) <= width ? table.Raster : undefined
+    const Svg = !isTerminal && 'Svg' in table && layout.width(1) * SVG_PX <= width * SVG_CELL_PX ? table.Svg : undefined
+    const hasPicture = Raster !== undefined || Svg !== undefined
+    // Rows a room's picture takes among the text lines.
+    const rowsOf = (seats: number, perRow: number, isLarge = false) =>
+      Raster !== undefined ? layout.rows(seats, perRow, isLarge) : Svg !== undefined ? svgRows(roomHeight(seats, perRow)) : 0
     const rows = e.viewport?.rows ?? 30
     const active = list.filter(one => !isEnded(one.status))
     const isRinging = phone.until > now
@@ -395,10 +405,15 @@ export const register: Register = on => {
     const byRole = (room: Room) => [...room.people.filter(p => !p.isVisitor), ...room.people.filter(p => p.isVisitor)]
 
     const picture = (room: Room, key: string, seats: Person['pose'][], perRow: number, isLarge: boolean) => {
-      if (Raster === undefined) return undefined
       const cabinet = cabinetOf(room, width)
-      const art = drawRoom(mode, { seats, perRow, tick: n, isLarge, cabinet, clock: clock(now) })
-      return <Raster key={key} columns={art.columns} rows={art.rows} cells={art.cells} />
+      if (Raster !== undefined) {
+        const art = drawRoom(mode, { seats, perRow, tick: n, isLarge, cabinet, clock: clock(now) })
+        return <Raster key={key} columns={art.columns} rows={art.rows} cells={art.cells} />
+      }
+      if (Svg === undefined) return undefined
+      const art = toSvg(paintRoom({ seats, perRow, tick: n, isLarge, cabinet }))
+      if (art.source.length > SVG_LIMIT) return undefined
+      return <Svg key={key} source={art.source} alt={`${room.name}の様子（${headcount(room)}）`} width={art.width} height={art.height} />
     }
 
     const person = (p: Person, room: number) => {
@@ -425,7 +440,7 @@ export const register: Register = on => {
       const cap = Math.max(1, Math.floor((width - 1 - (room.name === BOSS_ROOM ? layout.cabinet : 0)) / (layout.station + 1)))
       // One slot more than the seats, for the plant and some air.
       const perRow = Math.min(seats.length + 1, cap)
-      const height = Raster === undefined ? 0 : layout.rows(seats.length, perRow, true)
+      const height = rowsOf(seats.length, perRow, true)
       const mine = lines.filter(line => room.tokens.some(token => line.text.includes(token)))
       const asks = talks.filter(c => c.room === room.name).slice(-3)
       const used = 2 + height + (asks.length > 0 ? asks.length + 1 : 0) + room.people.reduce((sum, p) => sum + (p.detail ? 3 : 2), 0) + room.left.length + 1
@@ -459,8 +474,8 @@ export const register: Register = on => {
     const tiles = floor.map((r, i) => {
       const perRow = Math.min(r.people.length, cap, 3)
       const extra = cabinetOf(r, width) ? layout.cabinet : 0
-      const tileWidth = Raster === undefined ? width : Math.min(width, layout.width(perRow) + extra)
-      const height = Raster === undefined ? 0 : layout.rows(r.people.length, perRow)
+      const tileWidth = hasPicture ? Math.min(width, layout.width(perRow) + extra) : width
+      const height = rowsOf(r.people.length, perRow)
       const label = fit(r.name === BOSS_ROOM && (mail > 0 || paper > 0) ? `${r.name} *` : r.name, tileWidth - 3)
       const rest = tileWidth - 3 - cols(label) - 2
       return {

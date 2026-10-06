@@ -270,6 +270,51 @@ export function toCells(c: Canvas): Cells {
   return { columns: c.width, rows, cells: encode(words) }
 }
 
+// Vector art, for the surfaces that draw an Svg instead of a Raster (the
+// desktop app, the editor, the mobile app). One canvas pixel is a square of
+// SVG_PX CSS pixels, so a room spans as many columns as it does in half mode and
+// the same layout serves both: SVG_PX stays under a character cell's width so a
+// tile never outgrows the columns the pane reserved for it.
+
+export const SVG_PX = 6
+// About the height of a line of text, to count the rows a picture takes.
+export const SVG_ROW_PX = 20
+// The most characters the engine takes as one Svg source.
+export const SVG_LIMIT = 131072
+
+export type Svg = { source: string; width: number; height: number }
+
+const hex = (color: number) => `#${color.toString(16).padStart(6, '0')}`
+const isOpaque = (color: number) => color >= 0 && color <= 0xffffff
+
+// The canvas as one rect of its commonest color and one path per other color,
+// each a horizontal run of equal pixels drawn as a row-high box. A pixel outside
+// 0..0xffffff is transparent and left out.
+export function toSvg(c: Canvas, scale = SVG_PX): Svg {
+  const counts = new Map<number, number>()
+  for (const color of c.px) counts.set(color, (counts.get(color) ?? 0) + 1)
+  const base = [...counts].filter(([color]) => isOpaque(color)).sort((a, b) => b[1] - a[1])[0]?.[0]
+  const paths = new Map<number, string>()
+  for (let y = 0; y < c.height; y++) {
+    for (let x = 0; x < c.width; ) {
+      const color = c.px[y * c.width + x] ?? -1
+      let end = x + 1
+      while (end < c.width && c.px[y * c.width + end] === color) end++
+      if (isOpaque(color) && color !== base) paths.set(color, `${paths.get(color) ?? ''}M${x} ${y}h${end - x}v1h-${end - x}z`)
+      x = end
+    }
+  }
+  const body = [...paths].map(([color, d]) => `<path fill="${hex(color)}" d="${d}"/>`).join('')
+  const ground = base === undefined ? '' : `<rect width="${c.width}" height="${c.height}" fill="${hex(base)}"/>`
+  const source = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${c.width} ${c.height}" shape-rendering="crispEdges">${ground}${body}</svg>`
+  return { source, width: c.width * scale, height: c.height * scale }
+}
+
+// Text rows a picture of this many canvas pixels tall takes beside the lines.
+export function svgRows(pixels: number): number {
+  return Math.ceil((pixels * SVG_PX) / SVG_ROW_PX)
+}
+
 // Background-only art, for terminals whose font does not draw the half block
 // edge to edge (Apple Terminal): every cell is a space with a background, one
 // pixel twice as tall as wide, and a cue may be a real character over it.

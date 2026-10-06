@@ -20,7 +20,7 @@ import {
   surnameFor,
 } from '../hooks/office'
 import type { Person } from '../hooks/office'
-import { LAYOUT, modeFor, paintFlat, paintRoom, roomWidth, toCells, toFlatCells } from '../hooks/pixels'
+import { LAYOUT, SVG_LIMIT, modeFor, paintFlat, paintRoom, roomWidth, toCells, toFlatCells, toSvg } from '../hooks/pixels'
 
 const PANE = {
   component: 'Pane',
@@ -247,6 +247,40 @@ describe('部屋の絵', () => {
   })
 })
 
+describe('Svg の絵', () => {
+  const poses = ['type', 'read', 'think', 'coffee', 'wait', 'phone', 'out', 'delegate', 'empty', 'guest', 'elder'] as const
+  const many = (n: number) => Array.from({ length: n }, (_, i) => poses[i % poses.length]!)
+
+  test('マークアップは svg で始まり viewBox と crispEdges を持つ', async () => {
+    const art = toSvg(paintRoom({ seats: ['type'], perRow: 1, tick: 0 }))
+    expect(art.source.startsWith('<svg ')).toBe(true)
+    expect(art.source.endsWith('</svg>')).toBe(true)
+    expect(art.source).toContain(`viewBox="0 0 ${roomWidth(1)} 12"`)
+    expect(art.source).toContain('shape-rendering="crispEdges"')
+    expect(art.source).not.toMatch(/<script|on\w+=/)
+  })
+
+  test('Clawd の色は絵に残り、透明な画素は描かない', async () => {
+    expect(toSvg(paintRoom({ seats: ['type'], perRow: 1, tick: 0 })).source).toContain('fill="#d77757"')
+    const c = { width: 2, height: 1, px: [0x112233, -1] }
+    const art = toSvg(c)
+    expect(art.source).toContain('fill="#112233"')
+    expect(art.source).not.toContain('<path')
+  })
+
+  test('最大級の部屋でも 131072 字に収まる', async () => {
+    const cabinet = { hasUnread: true, papers: 2 }
+    const sizes = [1, 3, 12, 30].map(n => toSvg(paintRoom({ seats: many(n), perRow: Math.min(n, 3), tick: 1, isLarge: true, cabinet })).source.length)
+    for (const size of sizes) expect(size).toBeLessThan(SVG_LIMIT)
+  })
+
+  test('大きさは画素数に倍率を掛けたもの', async () => {
+    const art = toSvg(paintRoom({ seats: ['type'], perRow: 1, tick: 0 }), 4)
+    expect(art.width).toBe(roomWidth(1) * 4)
+    expect(art.height).toBe(48)
+  })
+})
+
 describe('背景色だけの絵', () => {
   const count = (px: number[], color: number) => px.filter(p => p === color).length
   const marks = (glyph: (string | undefined)[]) => glyph.filter(g => g !== undefined).length
@@ -296,6 +330,23 @@ describe('オフィスの pane', () => {
     expect(await ui.find({ type: 'Text', text: /^\s*2\/3名$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^社長：あなたの指示待ち$/ })).toBeDefined()
     await ui.unmount()
+  })
+
+  test('Raster は端末だけ、Svg はデスクトップで、どちらも部屋を描く', async ($, on) => {
+    world(on)
+    const term = await $.ui.mount({ plugin: 'agent-office', surface: 'terminal', ...PANE })
+    expect((await term.findAll({ type: 'Raster' })).length).toBeGreaterThan(0)
+    expect(await term.find({ type: 'Svg' })).toBeUndefined()
+    await term.unmount()
+    const desk = await $.ui.mount({ plugin: 'agent-office', surface: 'desktop', ...PANE })
+    expect(await desk.find({ type: 'Raster' })).toBeUndefined()
+    const svgs = await desk.findAll({ type: 'Svg' })
+    expect(svgs.length).toBeGreaterThan(0)
+    for (const one of svgs) {
+      expect(String(one.props.source).length).toBeLessThan(SVG_LIMIT)
+      expect(String(one.props.alt)).toMatch(/社長室.*名/)
+    }
+    await desk.unmount()
   })
 
   test('社長はどの画面にも座っている', async ($, on) => {

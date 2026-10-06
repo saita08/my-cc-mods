@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-06
+
+### Changed
+
+- agent-officeのバージョンを1.0.1に調整
+
 ## [1.0.0] - 2026-10-06
 
 ### Added
